@@ -1,0 +1,90 @@
+#!/usr/bin/env ruby
+$: << File.expand_path("../lib/", __FILE__)
+
+require 'thor'
+require 'segment/analytics'
+require 'sequel'
+require 'configatron'
+require './config/config'
+require 'sql_job'
+
+require 'openssl'
+OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE
+
+SEGMENT_KEY = configatron.segment.key
+
+class SegmentReport < Thor
+  desc "runner", "update segment"
+  def runner
+    puts "Start Time segment-report: [" + Time.now.strftime("%Y-%m-%d %H:%M:%S") + "]"
+    start_report = Time.now.to_i # time in epoch
+
+    puts "Connect to Segment\n"
+    connect_segment
+
+    puts "Load Appboy SQL \n"
+    sql_subdir = "segment"    # Directory in Github under managment-report/sql/spreadsheet
+    sql_base = "appboy_users" # Filename in Github
+
+    @sql_job = SqlJob.new( sql_subdir, sql_base)
+
+    puts "Process users \n"
+    process_users
+
+    end_report = Time.now.to_i # time in epoch
+    runtime_report = end_report - start_report
+    puts "End Time segment-report: [" + Time.now.strftime("%Y-%m-%d %H:%M:%S") + "]"
+    puts "Report run time=[#{runtime_report}] seconds"
+  end
+
+  desc "process_users", "process all users"
+  def process_users
+    count_users = 0
+    @sql_job.run do |sql_result_row|
+
+      user_id_key = sql_result_row.keys[0]
+      user_name_key = sql_result_row.keys[1]
+      last_login_date_key = sql_result_row.keys[2]
+      last_claim_date_key = sql_result_row.keys[3]
+      last_given_date_key = sql_result_row.keys[4]
+      claims_count_key = sql_result_row.keys[5]
+      given_count_key = sql_result_row.keys[6]
+
+      user_id  =  sql_result_row[user_id_key]
+      user_name = sql_result_row[user_name_key]
+      last_login_date = sql_result_row[last_login_date_key]
+      last_claim_date = sql_result_row[last_claim_date_key]
+      last_given_date = sql_result_row[last_given_date_key]
+      claims_count = sql_result_row[claims_count_key]
+      given_count = sql_result_row[given_count_key]
+
+      #puts("user_id=[#{user_id}] user_name=[#{user_name}]  last_login_date=[#{last_login_date}] claims_count=[#{claims_count}]  given_count=[#{given_count}] last_claim_date=[#{last_claim_date}]  last_given_date=[#{last_given_date}]  \n")
+
+      # Convert current time to ISO 8601 format. Transformed correctly by Segment to Appboy
+      @analytics.identify(
+          user_id: user_id,
+          traits: {
+              name: user_name,
+              lastLoginDate: last_login_date,
+              lastClaimDate: last_claim_date,
+              lastGivenDate: last_given_date,
+              lifetimeClaimsCount: claims_count,
+              lifetimeGivesCount: given_count
+          })
+      count_users = count_users+1
+    end
+    puts "Number of users inserted=[#{count_users}]"
+    puts "Committing the changes[" + Time.now.strftime("%Y-%m-%d %H:%M:%S") + "]"
+    @analytics.flush
+  end
+
+  desc  "connect_segment", "Connect to Segment"
+  def connect_segment
+    @analytics = Segment::Analytics.new({
+                   write_key: SEGMENT_KEY,
+                   on_error: Proc.new { |status, msg| print msg }})
+    @analytics.flush
+  end
+end
+
+SegmentReport.start

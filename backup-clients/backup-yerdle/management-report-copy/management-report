@@ -1,0 +1,76 @@
+#!/usr/bin/env ruby
+$: << File.expand_path("../lib/", __FILE__)
+
+require 'thor'
+require 'key_metrics'
+
+require 'pry'
+
+
+# LOGGER = Logger.new(STDOUT)
+# LOGGER.level = Logger::INFO
+
+class ManagementReport < Thor
+
+  class_option :worksheet,
+            :desc => 'workheet to process',
+            :type => :string,
+            :required => true,
+            :aliases => "-w",
+            :enum => ['mom', 'mtd', 'wow', 'revenue', 'daily', 'growth-dod', 'growth-mom'],
+            :default => "daily"
+
+  # by default, we just ADD values to the rows that have not been filled in.
+  # we can update all rows using the -o switch
+  # by default, all rows in the spreadsheet with the "auto" column set to "y"
+  # are updated. to update just one row, enter the root of the sql file name
+  # listed in the "source" column, ie '-s=app_active_users'
+  desc "runner", "update one worksheet in the spreadsheet"
+  method_option :dump, :type => :boolean, :aliases => "-d", :default => false,
+                :desc => "Dump query results without updating spreadsheet"
+  method_option :overwrite, :type => :boolean, :aliases => "-o", :default => false,
+                :desc => "Overwrite existing values"
+  method_option :source, :type => :array, :aliases => "-s", :default => nil,
+                :desc => "root of sql source to run"
+  method_option :run_before, :type => :string, :aliases => "-a", :default => nil,
+                :desc => "only run rows updated after passed in DateTime '%Y-%d-%m %H:%M:%S'"
+  def runner
+    km = KeyMetrics.new
+
+    puts "Start Time management-report: [" + Time.now.strftime("%d/%m/%Y %H:%M") + "]"
+    run_before = nil
+    run_before = DateTime.parse(options[:run_before]) unless options[:run_before].nil?
+
+    if !options[:source]
+      sql_base_list = km.sheet_runner(options[:worksheet], options[:dump], options[:overwrite], options[:source], run_before)
+    else
+      sql_base_list = options[:source]
+    end
+
+    sql_base_list.each do |src|
+      km = KeyMetrics.new # Create new instance for each SQL.
+      km.sheet_runner(options[:worksheet], options[:dump], options[:overwrite], src, run_before)
+    end
+    puts "End Time management-report: [" + Time.now.strftime("%d/%m/%Y %H:%M") + "]"
+  end
+
+  desc "sourcify", "fill in the source column"
+  def sourcify
+    km = KeyMetrics.new
+    km.update_source_column(options[:worksheet])
+  end
+
+  desc "testy", "test sql connection"
+  def testy
+    SqlJob.test_query
+  end
+
+  desc "walker", "test/dev method"
+  def walker
+    km = KeyMetrics.new
+    km.sheet_walker(options[:worksheet])
+  end
+
+end
+
+ManagementReport.start(ARGV)

@@ -1,0 +1,10 @@
+
+SELECT
+  TO_CHAR(DATE_TRUNC('day', created_at),'YYYY-MM-DD') AS day,
+  COUNT(DISTINCT referred_user_id)
+FROM yerdle_referrals
+WHERE
+  created_at >= '2015-01-01' AND created_at < CURRENT_DATE
+  AND referring_user_id NOT IN (769521, 553536, 815601, 816736, 816346, 817171, 817716, 818226, 818259, 818903, 818089, 818097, 821146, 847085)
+GROUP BY 1
+ORDER BY 1 DESC
